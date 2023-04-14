@@ -7,7 +7,7 @@
 const char *ssid = "ifc_wifi";
 const char *password = "";
 
-String ApiUrl = "http://191.52.58.120:8087";
+String ApiUrl = "http://191.52.56.197:8087";
 
 #define SS_PIN 21
 #define RST_PIN 22
@@ -92,6 +92,8 @@ void unlock_door()
   digitalWrite(RELAY_PIN, LOW);
   Serial.println("FECHANDO");
   isRelayOn = false;
+  delay(2000);
+  rfid.PCD_Init();
 }
 
 void setup()
@@ -140,35 +142,35 @@ void loop()
   //   return;
   // }
 
-  if(rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial())
+  if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial())
   {
 
-  // Verifica se já passou tempo suficiente desde a última leitura
-  if (millis() - lastCardReadTime > CARD_READ_DELAY)
-  {
-    // Lê o conteúdo do cartão e o imprime no console
-    String conteudo = "";
-    for (byte i = 0; i < rfid.uid.size; i++)
+    // Verifica se já passou tempo suficiente desde a última leitura
+    if (millis() - lastCardReadTime > CARD_READ_DELAY)
     {
-      conteudo.concat(String(rfid.uid.uidByte[i] < 0x10 ? "0" : ""));
-      conteudo.concat(String(rfid.uid.uidByte[i], HEX));
-    }
-    conteudo.toUpperCase();
-    Serial.println("Card content: " + conteudo);
-    // if conteudo is not empty, then send to the api
-    if (conteudo != "")
-    {
-      if (auth_rfid(conteudo))
+      // Lê o conteúdo do cartão e o imprime no console
+      String conteudo = "";
+      for (byte i = 0; i < rfid.uid.size; i++)
       {
-        unlock_door();
+        conteudo.concat(String(rfid.uid.uidByte[i] < 0x10 ? "0" : ""));
+        conteudo.concat(String(rfid.uid.uidByte[i], HEX));
       }
-      else
+      conteudo.toUpperCase();
+      Serial.println("Card content: " + conteudo);
+      // if conteudo is not empty, then send to the api
+      if (conteudo != "")
       {
-        Serial.println("Porta nao desbloqueada");
+        if (auth_rfid(conteudo))
+        {
+          unlock_door();
+        }
+        else
+        {
+          Serial.println("Porta nao desbloqueada");
+        }
       }
+      return;
     }
-    return;
-  }
 
     // Registra a hora da última leitura
     lastCardReadTime = millis();
