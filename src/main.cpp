@@ -153,6 +153,8 @@ void setup()
   logEvent("INFO", "Conectado ao WiFi.");
   logEvent("INFO", "Endereço IP: " + WiFi.localIP().toString()); // Exibe o IP do dispositivo
 
+
+  check_api(); // Verifica a API
   // Configura a rota para retornar os logs
   server.on("/logs", HTTP_GET, []()
             {
@@ -186,9 +188,6 @@ void loop()
 {
   // Verifica o WiFi e tenta reconectar se necessário
   reconnectWiFi();
-
-  // Verifique o estado da API
-  check_api();
 
   // Processa as requisições HTTP
   server.handleClient();
