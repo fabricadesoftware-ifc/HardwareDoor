@@ -198,7 +198,7 @@ void setup()
                 }
                 else
                 {
-                  logFileBpk = SPIFFS.open("/logs.log.bkp", FILE_WRITE);
+                  File logFileBpk = SPIFFS.open("/logs.log.bkp", FILE_WRITE);
                   logFileBpk.print(logFile.readString());
                 }
                 SPIFFS.remove("/logs.log");
