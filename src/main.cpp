@@ -160,14 +160,14 @@ void setup()
             {
               if (!SPIFFS.exists("/logs.log"))
               {
-                server.send(404, "text/plain", "Arquivo de logs não encontrado.");
+                server.send(404, "text/json", "Arquivo de logs não encontrado.");
                 return;
               }
 
               File logFile = SPIFFS.open("/logs.log", FILE_READ);
               if (!logFile)
               {
-                server.send(500, "text/plain", "Erro ao abrir o arquivo de logs.");
+                server.send(500, "text/json", "Erro ao abrir o arquivo de logs.");
                 return;
               }
 
@@ -179,6 +179,34 @@ void setup()
               logFile.close();
 
               server.send(200, "text/plain", logs); // Envia os logs como resposta
+            });
+    
+  server.on("/delete_logs", HTTP_GET, []()
+            {
+              if (!SPIFFS.exists("/logs.log"))
+              {
+                server.send(200, "text/json", "Arquivo de logs removido.");
+              }
+              else
+              {
+                File logFile = SPIFFS.open("/logs.log", FILE_READ);
+
+                if (!logFile)
+                {
+                  server.send(500, "text/json", "Erro ao abrir o arquivo de logs.");
+                  return;
+                }
+                else
+                {
+                  logFileBpk = SPIFFS.open("/logs.log.bkp", FILE_WRITE);
+                  logFileBpk.print(logFile.readString());
+                }
+                SPIFFS.remove("/logs.log");
+                server.send(200, "text/json", "Arquivo de logs removido.");
+              }
+
+              SPIFFS.remove("/logs.log");
+              server.send(200, "text/json", "Arquivo de logs removido.");
             });
 
   server.begin(); // Inicia o servidor
