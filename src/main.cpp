@@ -10,7 +10,7 @@ const char *ssid = "ifc_wifi";
 const char *password = "";
 String ApiUrl = "http://191.52.59.34:8087"; // URL da API
 
-const String BEARER_TOKEN = "seu_token_secreto"; // Defina seu token secreto aqui
+const String BEARER_TOKEN = "fabrica2420"; // Defina seu token secreto aqui
 
 // Pinos de conexão
 #define SS_PIN 21    // Pino SS para o leitor RFID
@@ -19,7 +19,7 @@ const String BEARER_TOKEN = "seu_token_secreto"; // Defina seu token secreto aqu
 
 // Definições de tempo
 #define CARD_READ_DELAY 10 // Tempo entre leituras de cartão RFID (em ms)
-#define DEBOUNCE_DELAY 500 // Tempo de debounce para o relé (em ms)
+#define DEBOUNCE_DELAY 50 // Tempo de debounce para o relé (em ms)
 
 // Inicialização do leitor RFID
 MFRC522 rfid(SS_PIN, RST_PIN);
