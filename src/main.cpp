@@ -19,32 +19,38 @@ const String BEARER_TOKEN = "fabrica2420"; // Defina seu token secreto aqui
 
 // Definições de tempo
 #define CARD_READ_DELAY 10 // Tempo entre leituras de cartão RFID (em ms)
-#define DEBOUNCE_DELAY 50 // Tempo de debounce para o relé (em ms)
+#define DEBOUNCE_DELAY 50  // Tempo de debounce para o relé (em ms)
 
 // Inicialização do leitor RFID
 MFRC522 rfid(SS_PIN, RST_PIN);
 WebServer server(80);               // Servidor HTTP na porta 80
 unsigned long lastCardReadTime = 0; // Armazena o último tempo de leitura do cartão
 
+/* Função de logging */
+void logEvent(String message)
+{
+  String logTime = String(millis() / 1000); // Tempo em segundos desde o início
+  Serial.println("[" + logTime + "s] " + message);
+}
+
 /* Função para verificar o status da API */
 bool check_api()
 {
   HTTPClient http;
-  Serial.println("Verificando a API...");
+  logEvent("Verificando a API...");
   http.begin(ApiUrl);        // Inicia a requisição HTTP
   http.setTimeout(5000);     // Timeout de 5 segundos
   int httpCode = http.GET(); // Envia requisição GET
 
-  Serial.printf("[HTTP] GET... code: %d\n", httpCode);
+  logEvent("[HTTP] GET... code: " + String(httpCode));
   if (httpCode == HTTP_CODE_OK)
   {
     String payload = http.getString();
-    Serial.println("API está no ar. Resposta:");
-    Serial.println(payload);
+    logEvent("API está no ar. Resposta: " + payload);
   }
   else
   {
-    Serial.printf("API falhou, código: %d\n", httpCode);
+    logEvent("API falhou, código: " + String(httpCode));
     return false; // Retorna false se a API não respondeu corretamente
   }
 
@@ -56,34 +62,32 @@ bool check_api()
 bool auth_rfid(String rfidCode)
 {
   HTTPClient http;
-  Serial.println("Autenticando RFID...");
+  logEvent("Autenticando RFID...");
   http.begin(ApiUrl + "/door/");                      // Define o endpoint da API para autenticação
   http.addHeader("Content-Type", "application/json"); // Define o cabeçalho da requisição
   http.setTimeout(5000);                              // Timeout de 5 segundos
 
   // Monta o payload em formato JSON
   String json = "{\"rfid\": \"" + rfidCode + "\"}";
-  Serial.print("Enviando POST com payload: ");
-  Serial.println(json);
+  logEvent("Enviando POST com payload: " + json);
 
   int httpCode = http.POST(json); // Envia a requisição POST
 
-  Serial.printf("[HTTP] POST... code: %d\n", httpCode);
+  logEvent("[HTTP] POST... code: " + String(httpCode));
   if (httpCode == HTTP_CODE_OK)
   {
     String payload = http.getString();
-    Serial.println("Autenticação bem-sucedida. Resposta:");
-    Serial.println(payload);
+    logEvent("Autenticação bem-sucedida. Resposta: " + payload);
     return true; // Retorna true se o RFID foi autorizado
   }
   else if (httpCode == HTTP_CODE_UNAUTHORIZED)
   {
-    Serial.println("RFID não autorizado.");
+    logEvent("RFID não autorizado.");
     return false; // Retorna false se o RFID não foi autorizado
   }
   else
   {
-    Serial.printf("Falha na autenticação. Código HTTP: %d\n", httpCode);
+    logEvent("Falha na autenticação. Código HTTP: " + String(httpCode));
   }
 
   http.end();
@@ -93,14 +97,14 @@ bool auth_rfid(String rfidCode)
 /* Função para desbloquear a porta */
 void unlock_door()
 {
-  Serial.println("Desbloqueando porta...");
+  logEvent("Desbloqueando porta...");
   digitalWrite(RELAY_PIN, HIGH); // Liga o relé para abrir a porta
   delay(1000);                   // Mantém a porta aberta por mais tempo (1 segundo)
   digitalWrite(RELAY_PIN, LOW);  // Desliga o relé para fechar a porta
-  Serial.println("Porta bloqueada.");
+  logEvent("Porta bloqueada.");
   SPI.begin();
   rfid.PCD_Init();
-  Serial.println("Leitor RFID reiniciando, aguardando cartões...");
+  logEvent("Leitor RFID reiniciando, aguardando cartões...");
 }
 
 /* Função para validar o token Bearer */
@@ -108,18 +112,18 @@ bool validate_bearer_token(WebServer &request)
 {
   if (!request.hasHeader("Authorization"))
   {
-    Serial.println("Cabeçalho de autorização ausente.");
+    logEvent("Cabeçalho de autorização ausente.");
     return false;
   }
 
   String authHeader = request.header("Authorization");
   if (authHeader == "Bearer " + BEARER_TOKEN)
   {
-    Serial.println("Token Bearer validado com sucesso.");
+    logEvent("Token Bearer validado com sucesso.");
     return true;
   }
 
-  Serial.println("Token Bearer inválido.");
+  logEvent("Token Bearer inválido.");
   return false;
 }
 
@@ -128,7 +132,7 @@ void reconnectWiFi()
 {
   if (WiFi.status() != WL_CONNECTED)
   {
-    Serial.println("WiFi desconectado. Tentando reconectar...");
+    logEvent("WiFi desconectado. Tentando reconectar...");
     WiFi.disconnect();
     WiFi.begin(ssid, password);
     unsigned long startAttemptTime = millis();
@@ -139,11 +143,11 @@ void reconnectWiFi()
     }
     if (WiFi.status() == WL_CONNECTED)
     {
-      Serial.println("\nReconectado ao WiFi.");
+      logEvent("Reconectado ao WiFi.");
     }
     else
     {
-      Serial.println("\nFalha na reconexão ao WiFi.");
+      logEvent("Falha na reconexão ao WiFi.");
     }
   }
 }
@@ -152,7 +156,7 @@ void setup()
 {
   // Inicia a comunicação serial
   Serial.begin(9600);
-  Serial.println("Iniciando...");
+  logEvent("Iniciando...");
 
   // Configura o pino do relé como saída
   pinMode(RELAY_PIN, OUTPUT);
@@ -160,7 +164,7 @@ void setup()
   // Conecta ao WiFi
   WiFi.mode(WIFI_STA); // Define o WiFi como estação
   WiFi.begin(ssid, password);
-  Serial.println("Conectando ao WiFi...");
+  logEvent("Conectando ao WiFi...");
 
   // Loop para aguardar conexão WiFi
   while (WiFi.status() != WL_CONNECTED)
@@ -168,14 +172,13 @@ void setup()
     delay(500);
     Serial.print(".");
   }
-  Serial.println("\nConectado ao WiFi.");
-  Serial.print("Endereço IP: ");
-  Serial.println(WiFi.localIP()); // Exibe o IP do dispositivo
+  logEvent("Conectado ao WiFi.");
+  logEvent("Endereço IP: " + WiFi.localIP().toString()); // Exibe o IP do dispositivo
 
   // Inicializa o leitor RFID
   SPI.begin();
   rfid.PCD_Init();
-  Serial.println("Leitor RFID inicializado, aguardando cartões...");
+  logEvent("Leitor RFID inicializado, aguardando cartões...");
 
   // Verifica se a API está disponível
   check_api();
@@ -185,9 +188,9 @@ void setup()
             {
               if (validate_bearer_token(server)) {
                 unlock_door();  // Chama a função para abrir a porta
-                server.send(200, "text/plain", "Porta aberta via API");
+                server.send(200, "text/json", "Sucess": True, "message": "Porta desbloqueada");  //
               } else {
-                server.send(401, "text/plain", "Não autorizado");  // Retorna status 401 se o token for inválido
+                server.send(401, "text/json", "Não autorizado");  // Retorna status 401 se o token for inválido
               } });
 
   // Inicia o servidor
@@ -202,12 +205,12 @@ void loop()
   // Verifica se um novo cartão foi apresentado no leitor
   if (rfid.PICC_IsNewCardPresent() || rfid.PICC_ReadCardSerial())
   {
-    Serial.println("Cartão detectado.\n");
+    logEvent("Cartão detectado.\n");
   }
   if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial())
   {
     // Verifica o tempo desde a última leitura de cartão
-    Serial.println("Cartão RFID detectado.");
+    logEvent("Cartão RFID detectado.");
     if (millis() - lastCardReadTime > CARD_READ_DELAY)
     {
       // Lê o UID do cartão RFID
@@ -218,7 +221,7 @@ void loop()
         rfidCode.concat(String(rfid.uid.uidByte[i], HEX));
       }
       rfidCode.toUpperCase(); // Converte para maiúsculas
-      Serial.println("RFID lido: " + rfidCode);
+      logEvent("RFID lido: " + rfidCode);
 
       // Se o RFID não for vazio, tenta autenticar na API
       if (!rfidCode.isEmpty())
@@ -229,7 +232,7 @@ void loop()
         }
         else
         {
-          Serial.println("RFID não autorizado. Porta não desbloqueada.");
+          logEvent("RFID não autorizado. Porta não desbloqueada.");
         }
       }
 
