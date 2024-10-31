@@ -1,7 +1,0 @@
-autenticação with bearer
-
-crud for tags
-
-crud for users
-
-route for returns log(tag_id, user, datetime)

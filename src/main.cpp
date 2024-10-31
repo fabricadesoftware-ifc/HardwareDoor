@@ -1,222 +1,205 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <MFRC522.h>
+#include <Ticker.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <WebServer.h>
-#include <SPIFFS.h>
-#include <time.h>
 
-// Configurações de rede
 const char *ssid = "ifc_wifi";
 const char *password = "";
-String ApiUrl = "http://191.52.59.34:8087"; // URL da API
+const int TickerTimer = 500;                     
+String ApiUrl = "http://191.52.56.62:19003/api";
+Ticker ticker;
 
-const String BEARER_TOKEN = "fabrica2420"; // Defina seu token secreto aqui
+const String BEARER_TOKEN = "fabdor-dPluQTwdJJ4tamtnP0i7J34UqphHuJTdUugKt2YMJgQeoAS5qs1fFi4My";
+#define LED_BUILTIN 2
 
-// Pinos de conexão
 #define SS_PIN 21    // Pino SS para o leitor RFID
 #define RST_PIN 22   // Pino RST para o leitor RFID
 #define RELAY_PIN 13 // Pino para o relé (controle da porta)
 
-// Definições de tempo
-#define CARD_READ_DELAY 10 // Tempo entre leituras de cartão RFID (em ms)
-#define DEBOUNCE_DELAY 50  // Tempo de debounce para o relé (em ms)
-
-// Inicialização do leitor RFID
 MFRC522 rfid(SS_PIN, RST_PIN);
-WebServer server(80);               // Servidor HTTP na porta 80
-unsigned long lastCardReadTime = 0; // Armazena o último tempo de leitura do cartão
+WebServer server(19003);
 
-/* Função de logging com data, hora e tipo, grava em arquivo .log */
-void logEvent(String type, String description)
+bool cadastroAtivo = false; 
+
+void logEvent(String type, String message)
 {
-  // Obtém a data e hora atual
-  struct tm timeinfo;
-  if (!getLocalTime(&timeinfo))
-  {
-    Serial.println("[ERROR] Falha ao obter a hora.");
-    return;
-  }
-
-  // Formata a data e hora
-  char timeString[25];
-  strftime(timeString, sizeof(timeString), "%Y-%m-%d %H:%M:%S", &timeinfo);
-
-  // Constrói a mensagem de log
-  String logMessage = "[" + String(timeString) + "][" + type + "] " + description;
-  Serial.println(logMessage); // Exibe o log no Serial Monitor
-
-  // Grava o log no arquivo .log em SPIFFS
-  File logFile = SPIFFS.open("/logs.log", FILE_APPEND);
-  if (!logFile)
-  {
-    Serial.println("[ERROR] Falha ao abrir o arquivo de log.");
-    return;
-  }
-
-  logFile.println(logMessage); // Escreve o log no arquivo
-  logFile.close();             // Fecha o arquivo
+  String logTime = String(millis() / 1000); 
+  Serial.println("[" + logTime + "s] " + message);
+  HTTPClient http;
+  String json = "{\"type\": \"" + type + "\", \"message\": \"" + message + "\"}";
+  http.begin(ApiUrl + "/logs");
+  http.addHeader("Content-Type", "application/json");
+  int httpCode = http.POST(json);
+  http.end();
 }
 
-/* Função para verificar o status da API */
-bool check_api()
+void imAlive()
 {
   HTTPClient http;
-  logEvent("INFO", "Verificando a API...");
-  http.begin(ApiUrl);        // Inicia a requisição HTTP
-  http.setTimeout(5000);     // Timeout de 5 segundos
-  int httpCode = http.GET(); // Envia requisição GET
+  String json = "{\"ip\": \"" + WiFi.localIP().toString() + "\"}";
+  http.begin(ApiUrl + "/health/ip");
+  http.addHeader("Content-Type", "application/json");
+  int httpCode = http.POST(json);
+  logEvent("INFO", "[HTTP] POST... code: " + String(httpCode));
+  http.end();
+}
 
-  logEvent("INFO", "[HTTP] GET... code: " + String(httpCode));
+void unlock_door()
+{
+  digitalWrite(RELAY_PIN, HIGH);
+  delay(50);
+  digitalWrite(RELAY_PIN, LOW); 
+}
+
+// Função para verificar e autenticar RFID na API
+bool auth_rfid(String rfidCode)
+{
+  HTTPClient http;
+  http.begin(ApiUrl + "/tags/door"); // Define o endpoint da API;
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("Authorization", "Bearer " + BEARER_TOKEN);
+  http.setTimeout(5000);
+  String json = "{\"rfid\": \"" + rfidCode + "\"}";
+  int httpCode = http.POST(json);
+
+
   if (httpCode == HTTP_CODE_OK)
   {
-    String payload = http.getString();
-    logEvent("INFO", "API está no ar. Resposta: " + payload);
+    return true;
+  }
+  else if (httpCode == HTTP_CODE_UNAUTHORIZED)
+  {
+    logEvent("WARN", "RFID não autorizado");
+    return false;
+  }
+  http.end();
+  return false;
+}
+
+// Função para cadastrar um novo RFID
+void cadastrar_rfid(String rfidCode)
+{
+  logEvent("INFO", "Cadastrando RFID: " + rfidCode);
+  HTTPClient http;
+  http.begin(ApiUrl + "/tags/" + rfidCode); // Define o endpoint da API
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("Authorization", "Bearer " + BEARER_TOKEN);
+  int httpCode = http.POST("{}");
+
+  if (httpCode == HTTP_CODE_CREATED)
+  {
+    logEvent("SUCESS", "RFID cadastrado com sucesso");
+  }
+  else if (httpCode == HTTP_CODE_CONFLICT)
+  {
+    logEvent("WARN", "RFID já cadastrado");
   }
   else
   {
-    logEvent("ERROR", "API falhou, código: " + String(httpCode));
-    return false; // Retorna false se a API não respondeu corretamente
+    logEvent("ERROR","Erro ao cadastrar RFID");
   }
-
-  http.end();
-  return true; // Retorna true se a API está operando corretamente
 }
 
-/* Função para desbloquear a porta */
-void unlock_door()
+// Função para alternar entre modo cadastro e normal
+void alternarModoCadastro()
 {
-  logEvent("INFO", "Desbloqueando porta...");
-  digitalWrite(RELAY_PIN, HIGH); // Liga o relé para abrir a porta
-  delay(1000);                   // Mantém a porta aberta por mais tempo (1 segundo)
-  digitalWrite(RELAY_PIN, LOW);  // Desliga o relé para fechar a porta
-  logEvent("INFO", "Porta bloqueada.");
+  cadastroAtivo = !cadastroAtivo;
+  logEvent("INFO", cadastroAtivo ? "Modo de cadastro ativado" : "Modo de operação normal ativado");
+  digitalWrite(LED_BUILTIN, cadastroAtivo ? HIGH : LOW); // LED indica modo ativo
 }
 
-/* Função para reconectar ao Wi-Fi */
-void reconnectWiFi()
+// Função para processar cartões RFID
+void processarCartao()
 {
-  if (WiFi.status() != WL_CONNECTED)
+  String rfidCode = "";
+  for (byte i = 0; i < rfid.uid.size; i++)
   {
-    logEvent("INFO", "WiFi desconectado. Tentando reconectar...");
-    WiFi.disconnect();
-    WiFi.begin(ssid, password);
-    unsigned long startAttemptTime = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < 10000)
+    rfidCode += String(rfid.uid.uidByte[i] < 0x10 ? "0" : "");
+    rfidCode += String(rfid.uid.uidByte[i], HEX);
+  }
+  rfidCode.toUpperCase();
+
+  if (cadastroAtivo)
+  {
+    cadastrar_rfid(rfidCode); // Cadastra o RFID no modo de cadastro
+  }
+  else
+  {
+    if (auth_rfid(rfidCode))
     {
-      delay(500);
-      Serial.print(".");
-    }
-    if (WiFi.status() == WL_CONNECTED)
-    {
-      logEvent("INFO", "Reconectado ao WiFi.");
-    }
-    else
-    {
-      logEvent("ERROR", "Falha na reconexão ao WiFi.");
+      unlock_door(); // Desbloqueia a porta se o RFID for autorizado
     }
   }
+  SPI.begin();
+  rfid.PCD_Init();
+}
+
+// Função para processar leituras de RFID
+void verificarCartaoRFID()
+{
+  if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial())
+  {
+    logEvent("INFO", "Cartão detectado.");
+    processarCartao();
+    rfid.PICC_HaltA(); // Finaliza a leitura do cartão
+  }
+}
+
+// Função para iniciar o servidor e rotas
+void iniciarServidor()
+{
+  // Rota para alternar modo cadastro/normal
+  server.on("/toggle-mode", HTTP_GET, []()
+            {
+    if (server.hasHeader("Authorization") && server.header("Authorization") == "Bearer " + BEARER_TOKEN) {
+      alternarModoCadastro();
+      server.send(200, "application/json", "{\"success\": true, \"mode\": \"" + String(cadastroAtivo ? "cadastro" : "operacao") + "\"}");
+    } else {
+      server.send(401, "application/json", "{\"success\": false, \"message\": \"Token Bearer inválido\"}");
+    } });
+
+  // Rota para abrir a porta manualmente
+  server.on("/open-door", HTTP_GET, []()
+            {
+    if (server.hasHeader("Authorization") && server.header("Authorization") == "Bearer " + BEARER_TOKEN) {
+      unlock_door();
+      server.send(200, "application/json", "{\"success\": true, \"message\": \"Porta aberta com sucesso\"}");
+    } else {
+      server.send(401, "application/json", "{\"success\": false, \"message\": \"Token Bearer inválido\"}");
+    } });
+
+  server.begin();
 }
 
 void setup()
 {
-  // Inicia a comunicação serial
   Serial.begin(9600);
-  logEvent("INFO", "Iniciando...");
-
-  // Inicializa o SPIFFS
-  if (!SPIFFS.begin(true))
-  {
-    Serial.println("Erro ao montar o sistema de arquivos");
-    return;
-  }
-  logEvent("INFO", "SPIFFS montado com sucesso.");
-
-  // Configura o pino do relé como saída
+  pinMode(LED_BUILTIN, OUTPUT);
   pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, LOW);
 
-  // Configura NTP para obter hora
-  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
-
-  // Conecta ao WiFi
-  WiFi.mode(WIFI_STA); // Define o WiFi como estação
+  WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
   logEvent("INFO", "Conectando ao WiFi...");
-
-  // Loop para aguardar conexão WiFi
   while (WiFi.status() != WL_CONNECTED)
   {
     delay(500);
     Serial.print(".");
   }
-  logEvent("INFO", "Conectado ao WiFi.");
-  logEvent("INFO", "Endereço IP: " + WiFi.localIP().toString()); // Exibe o IP do dispositivo
+  logEvent("INFO", "Conectado ao WiFi. IP: " + WiFi.localIP().toString());
 
+  SPI.begin();
+  rfid.PCD_Init();
+  ticker.attach(TickerTimer, imAlive);
 
-  check_api(); // Verifica a API
-  // Configura a rota para retornar os logs
-  server.on("/logs", HTTP_GET, []()
-            {
-              if (!SPIFFS.exists("/logs.log"))
-              {
-                server.send(404, "text/json", "Arquivo de logs não encontrado.");
-                return;
-              }
-
-              File logFile = SPIFFS.open("/logs.log", FILE_READ);
-              if (!logFile)
-              {
-                server.send(500, "text/json", "Erro ao abrir o arquivo de logs.");
-                return;
-              }
-
-              String logs = "";
-              while (logFile.available())
-              {
-                logs += logFile.readStringUntil('\n') + "\n"; // Lê cada linha do arquivo e adiciona à string
-              }
-              logFile.close();
-
-              server.send(200, "text/plain", logs); // Envia os logs como resposta
-            });
-    
-  server.on("/delete_logs", HTTP_GET, []()
-            {
-              if (!SPIFFS.exists("/logs.log"))
-              {
-                server.send(200, "text/json", "Arquivo de logs removido.");
-              }
-              else
-              {
-                File logFile = SPIFFS.open("/logs.log", FILE_READ);
-
-                if (!logFile)
-                {
-                  server.send(500, "text/json", "Erro ao abrir o arquivo de logs.");
-                  return;
-                }
-                else
-                {
-                  File logFileBpk = SPIFFS.open("/logs.log.bkp", FILE_WRITE);
-                  logFileBpk.print(logFile.readString());
-                }
-                SPIFFS.remove("/logs.log");
-                server.send(200, "text/json", "Arquivo de logs removido.");
-              }
-
-              SPIFFS.remove("/logs.log");
-              server.send(200, "text/json", "Arquivo de logs removido.");
-            });
-
-  server.begin(); // Inicia o servidor
+  iniciarServidor();
 }
 
 void loop()
 {
-  // Verifica o WiFi e tenta reconectar se necessário
-  reconnectWiFi();
-
-  // Processa as requisições HTTP
-  server.handleClient();
+  server.handleClient(); // Processa as requisições HTTP
+  verificarCartaoRFID(); // Verifica se há cartões RFID
 }
