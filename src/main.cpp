@@ -1,205 +1,55 @@
-#include <Arduino.h>
+#include <UIPEthernet.h> // Biblioteca para ENC28J60
+#include <HTTPClient.h> // Biblioteca para HTTP Client
 #include <SPI.h>
-#include <MFRC522.h>
-#include <Ticker.h>
-#include <WiFi.h>
-#include <HTTPClient.h>
-#include <WebServer.h>
+#include "FS.h"
 
-const char *ssid = "ifc_wifi";
-const char *password = "";
-const int TickerTimer = 500;                     
-String ApiUrl = "http://191.52.56.62:19003/api";
-Ticker ticker;
+#define ETH_CS 5         // Defina o pino CS usado pelo ENC28J60
 
-const String BEARER_TOKEN = "fabdor-dPluQTwdJJ4tamtnP0i7J34UqphHuJTdUugKt2YMJgQeoAS5qs1fFi4My";
-#define LED_BUILTIN 2
+byte mac[] = {0x7a, 0x12, 0x58, 0x5e, 0x6c, 0x33}; // Defina seu endereço MAC aqui
 
-#define SS_PIN 21    // Pino SS para o leitor RFID
-#define RST_PIN 22   // Pino RST para o leitor RFID
-#define RELAY_PIN 13 // Pino para o relé (controle da porta)
-
-MFRC522 rfid(SS_PIN, RST_PIN);
-WebServer server(19003);
-
-bool cadastroAtivo = false; 
-
-void logEvent(String type, String message)
-{
-  String logTime = String(millis() / 1000); 
-  Serial.println("[" + logTime + "s] " + message);
-  HTTPClient http;
-  String json = "{\"type\": \"" + type + "\", \"message\": \"" + message + "\"}";
-  http.begin(ApiUrl + "/logs");
-  http.addHeader("Content-Type", "application/json");
-  int httpCode = http.POST(json);
-  http.end();
-}
-
-void imAlive()
-{
-  HTTPClient http;
-  String json = "{\"ip\": \"" + WiFi.localIP().toString() + "\"}";
-  http.begin(ApiUrl + "/health/ip");
-  http.addHeader("Content-Type", "application/json");
-  int httpCode = http.POST(json);
-  logEvent("INFO", "[HTTP] POST... code: " + String(httpCode));
-  http.end();
-}
-
-void unlock_door()
-{
-  digitalWrite(RELAY_PIN, HIGH);
-  delay(50);
-  digitalWrite(RELAY_PIN, LOW); 
-}
-
-// Função para verificar e autenticar RFID na API
-bool auth_rfid(String rfidCode)
-{
-  HTTPClient http;
-  http.begin(ApiUrl + "/tags/door"); // Define o endpoint da API;
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("Authorization", "Bearer " + BEARER_TOKEN);
-  http.setTimeout(5000);
-  String json = "{\"rfid\": \"" + rfidCode + "\"}";
-  int httpCode = http.POST(json);
-
-
-  if (httpCode == HTTP_CODE_OK)
-  {
-    return true;
-  }
-  else if (httpCode == HTTP_CODE_UNAUTHORIZED)
-  {
-    logEvent("WARN", "RFID não autorizado");
-    return false;
-  }
-  http.end();
-  return false;
-}
-
-// Função para cadastrar um novo RFID
-void cadastrar_rfid(String rfidCode)
-{
-  logEvent("INFO", "Cadastrando RFID: " + rfidCode);
-  HTTPClient http;
-  http.begin(ApiUrl + "/tags/" + rfidCode); // Define o endpoint da API
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("Authorization", "Bearer " + BEARER_TOKEN);
-  int httpCode = http.POST("{}");
-
-  if (httpCode == HTTP_CODE_CREATED)
-  {
-    logEvent("SUCESS", "RFID cadastrado com sucesso");
-  }
-  else if (httpCode == HTTP_CODE_CONFLICT)
-  {
-    logEvent("WARN", "RFID já cadastrado");
-  }
-  else
-  {
-    logEvent("ERROR","Erro ao cadastrar RFID");
-  }
-}
-
-// Função para alternar entre modo cadastro e normal
-void alternarModoCadastro()
-{
-  cadastroAtivo = !cadastroAtivo;
-  logEvent("INFO", cadastroAtivo ? "Modo de cadastro ativado" : "Modo de operação normal ativado");
-  digitalWrite(LED_BUILTIN, cadastroAtivo ? HIGH : LOW); // LED indica modo ativo
-}
-
-// Função para processar cartões RFID
-void processarCartao()
-{
-  String rfidCode = "";
-  for (byte i = 0; i < rfid.uid.size; i++)
-  {
-    rfidCode += String(rfid.uid.uidByte[i] < 0x10 ? "0" : "");
-    rfidCode += String(rfid.uid.uidByte[i], HEX);
-  }
-  rfidCode.toUpperCase();
-
-  if (cadastroAtivo)
-  {
-    cadastrar_rfid(rfidCode); // Cadastra o RFID no modo de cadastro
-  }
-  else
-  {
-    if (auth_rfid(rfidCode))
-    {
-      unlock_door(); // Desbloqueia a porta se o RFID for autorizado
-    }
-  }
-  SPI.begin();
-  rfid.PCD_Init();
-}
-
-// Função para processar leituras de RFID
-void verificarCartaoRFID()
-{
-  if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial())
-  {
-    logEvent("INFO", "Cartão detectado.");
-    processarCartao();
-    rfid.PICC_HaltA(); // Finaliza a leitura do cartão
-  }
-}
-
-// Função para iniciar o servidor e rotas
-void iniciarServidor()
-{
-  // Rota para alternar modo cadastro/normal
-  server.on("/toggle-mode", HTTP_GET, []()
-            {
-    if (server.hasHeader("Authorization") && server.header("Authorization") == "Bearer " + BEARER_TOKEN) {
-      alternarModoCadastro();
-      server.send(200, "application/json", "{\"success\": true, \"mode\": \"" + String(cadastroAtivo ? "cadastro" : "operacao") + "\"}");
-    } else {
-      server.send(401, "application/json", "{\"success\": false, \"message\": \"Token Bearer inválido\"}");
-    } });
-
-  // Rota para abrir a porta manualmente
-  server.on("/open-door", HTTP_GET, []()
-            {
-    if (server.hasHeader("Authorization") && server.header("Authorization") == "Bearer " + BEARER_TOKEN) {
-      unlock_door();
-      server.send(200, "application/json", "{\"success\": true, \"message\": \"Porta aberta com sucesso\"}");
-    } else {
-      server.send(401, "application/json", "{\"success\": false, \"message\": \"Token Bearer inválido\"}");
-    } });
-
-  server.begin();
-}
+EthernetClient client;
 
 void setup()
 {
   Serial.begin(9600);
-  pinMode(LED_BUILTIN, OUTPUT);
-  pinMode(RELAY_PIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, LOW);
 
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-  logEvent("INFO", "Conectando ao WiFi...");
-  while (WiFi.status() != WL_CONNECTED)
+  // Inicia Ethernet com DHCP
+  if (Ethernet.begin(mac) == 0)
   {
-    delay(500);
-    Serial.print(".");
+    Serial.println("Falha na configuração Ethernet com DHCP");
   }
-  logEvent("INFO", "Conectado ao WiFi. IP: " + WiFi.localIP().toString());
 
-  SPI.begin();
-  rfid.PCD_Init();
-  ticker.attach(TickerTimer, imAlive);
-
-  iniciarServidor();
+  // Exibe o IP obtido via DHCP
+  Serial.print("Conectado com IP: ");
+  Serial.println(Ethernet.localIP());
 }
 
 void loop()
 {
-  server.handleClient(); // Processa as requisições HTTP
-  verificarCartaoRFID(); // Verifica se há cartões RFID
+  if (Ethernet.localIP() != IPAddress(0, 0, 0, 0))
+  {
+    HTTPClient http;
+    http.begin("http://www.google.com");
+    int httpCode = http.GET();
+
+    if (httpCode > 0)
+    {
+      Serial.printf("Código HTTP: %d\n", httpCode);
+      String payload = http.getString();
+      Serial.println("Resposta:");
+      Serial.println(payload);
+    }
+    else
+    {
+      Serial.printf("Erro na requisição: %s\n", http.errorToString(httpCode).c_str());
+    }
+
+    http.end();
+  }
+  else
+  {
+    Serial.println("Conexão de rede não estabelecida.");
+  }
+
+  delay(10000);
 }
