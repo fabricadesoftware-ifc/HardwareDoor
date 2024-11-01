@@ -2,7 +2,7 @@
 #include <HTTPClient.h> // Biblioteca para HTTP Client
 #include <SPI.h>
 #include "FS.h"
-
+#include <WebServer.h>
 #define ETH_CS 5         // Defina o pino CS usado pelo ENC28J60
 
 byte mac[] = {0x7a, 0x12, 0x58, 0x5e, 0x6c, 0x33}; // Defina seu endereço MAC aqui
@@ -22,6 +22,17 @@ void setup()
   // Exibe o IP obtido via DHCP
   Serial.print("Conectado com IP: ");
   Serial.println(Ethernet.localIP());
+  WebServer server(19003);
+server.on("/open-door", HTTP_GET, []()
+          {
+    if (server.hasHeader("Authorization") && server.header("Authorization") == "Bearer " + BEARER_TOKEN) {
+      unlock_door();
+      server.send(200, "application/json", "{\"success\": true, \"message\": \"Porta aberta com sucesso\"}");
+    } else {
+      server.send(401, "application/json", "{\"success\": false, \"message\": \"Token Bearer inválido\"}");
+    } });
+
+server.begin();
 }
 
 void loop()
