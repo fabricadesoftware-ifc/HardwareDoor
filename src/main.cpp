@@ -1,38 +1,39 @@
-#include <UIPEthernet.h> // Biblioteca para ENC28J60
-#include <HTTPClient.h> // Biblioteca para HTTP Client
 #include <SPI.h>
+#include <EthernetENC.h>
 #include "FS.h"
+#include <WiFi.h>
 #include <WebServer.h>
-#define ETH_CS 5   
-      // Defina o pino CS usado pelo ENC28J60
-WebServer server(19003);
+byte mac[] = {0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED};
 
-byte mac[] = {0x7a, 0x12, 0x58, 0x5e, 0x6c, 0x33}; // Defina seu endereço MAC aqui
+WebServer server(80); // Inicializa o WebServer na porta 80
+void serverConfig()
+{
 
-EthernetClient client;
+  Serial.println("Servidor Web iniciado.");
+};
 
 void setup()
 {
   Serial.begin(9600);
+  pinMode(LED_BUILTIN, OUTPUT);
 
-  // Inicia Ethernet com DHCP
   if (Ethernet.begin(mac) == 0)
   {
-    Serial.println("Falha na configuração Ethernet com DHCP");
+    Serial.println("Falha ao iniciar a Ethernet, usando IP fixo...");
+    Ethernet.begin(mac);
   }
+  delay(1000);
 
-  // Exibe o IP obtido via DHCP
-  Serial.print("Conectado com IP: ");
+  Serial.print("Conectado na Ethernet com IP: ");
   Serial.println(Ethernet.localIP());
-server.on("/open-door", HTTP_GET, []()
-          {
-            server.send(200, "text/plain", "Porta aberta!");
-          });
 
-server.begin();
+  serverConfig();
 }
 
 void loop()
 {
-
+  digitalWrite(LED_BUILTIN, HIGH);
+  delay(1000);
+  digitalWrite(LED_BUILTIN, LOW);
+  delay(1000);
 }
