@@ -1,6 +1,6 @@
 #include <SPI.h>
-#include "FS.h"
 #include <WiFi.h>
+#include "FS.h"
 #include <EthernetENC.h>
 #include <EthernetUdp.h>
 
@@ -8,8 +8,30 @@ byte mac[] = {0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED}; // Endereço MAC
 IPAddress ip(192, 168, 1, 177);                    // IP do Arduino
 unsigned int localPort = 8888;                     // Porta UDP para escutar
 
+const String BEARER_TOKEN = "fabdor-dPluQTwdJJ4tamtnP0i7J34UqphHuJTdUugKt2YMJgQeoAS5qs1fFi4My";
+
 EthernetUDP Udp; // Objeto para comunicação UDP
 bool test = false;
+
+void sendHttpPost(String json)
+{
+  EthernetClient client;
+  if (client.connect("192.168.1.10", 19003))
+  {
+    client.println("POST /api/health/ip HTTP/1.1");
+    client.println("Host: 192.168.1.10");
+    client.println("Content-Type: application/json");
+    client.print("Content-Length: ");
+    client.println(json.length());
+    client.println();
+    client.println(json);
+    client.stop();
+  }
+  else
+  {
+    Serial.println("Conexão com o servidor falhou.");
+  }
+}
 
 void setup()
 {
@@ -47,31 +69,53 @@ void loop()
     Serial.print("Pacote recebido: ");
     Serial.println(packetBuffer);
 
-    // Remove aspas no início e no final, se existirem
-    String command = String(packetBuffer);
-    command.trim();
-    if (command.startsWith("\"") && command.endsWith("\""))
-    {
-      command = command.substring(1, command.length() - 1);
-    }
-    command.toLowerCase();
-    // Se o comando recebido for "toggle", altera o estado do LED
-    Serial.print("Comando recebido: " + command);
-    if (command == "toggle")
-    {
-      digitalWrite(LED_BUILTIN, test);
-      test = !test;
+    // Converte o pacote em uma string
+    String mensagem = String(packetBuffer);
+    mensagem.trim();
 
-      // Envia uma resposta de volta ao cliente
-      Udp.beginPacket(Udp.remoteIP(), Udp.remotePort());
-      Udp.write("LED Toggled!");
-      Udp.endPacket();
+    // Verifica se a mensagem começa com o token Bearer
+    if (mensagem.startsWith("Bearer(" + BEARER_TOKEN + ")"))
+    {
+      // Extrai o comando após o token
+      String command = mensagem.substring(mensagem.indexOf(' ') + 1);
+      command.trim(); // Remove espaços em branco antes e depois do comando
+
+      // Remove aspas no início e no final, se existirem
+      if (command.startsWith("\"") && command.endsWith("\""))
+      {
+        command = command.substring(1, command.length() - 1);
+      }
+      command.toLowerCase();
+
+      // Se o comando recebido for "toggle", altera o estado do LED
+      Serial.print("Comando recebido: " + command);
+      if (command == "toggle")
+      {
+        digitalWrite(LED_BUILTIN, test);
+        test = !test;
+
+        // Enviar solicitação HTTP
+        String json = "{\"ip\": \"" + WiFi.localIP().toString() + "\"}"; // Use o IP correto aqui
+        sendHttpPost(json);
+
+        // Envia uma resposta de volta ao cliente
+        Udp.beginPacket(Udp.remoteIP(), Udp.remotePort());
+        Udp.write("LED Toggled!");
+        Udp.endPacket();
+      }
+      else
+      {
+        // Responde que o comando não foi reconhecido
+        Udp.beginPacket(Udp.remoteIP(), Udp.remotePort());
+        Udp.write("Comando não reconhecido.");
+        Udp.endPacket();
+      }
     }
     else
     {
-      // Responde que o comando não foi reconhecido
+      // Responde que a autenticação falhou
       Udp.beginPacket(Udp.remoteIP(), Udp.remotePort());
-      Udp.write("Comando nao reconhecido.");
+      Udp.write("Autenticação falhou.");
       Udp.endPacket();
     }
   }
