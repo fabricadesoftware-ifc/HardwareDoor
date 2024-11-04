@@ -1,11 +1,11 @@
-#include <Arduino.h>
 #include <SPI.h>
+#include <WiFi.h>
+#include "FS.h"
+#include <Arduino.h>
 #include <EthernetENC.h>
 #include <EthernetUDP.h>
 #include <MFRC522.h>
 #include <Ticker.h>
-#include <WiFi.h>
-#include <HTTPClient.h>
 
 byte mac[] = {0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED}; // Endereço MAC
 IPAddress ip(192, 168, 1, 177);                    // OPCIONAL
@@ -21,31 +21,59 @@ const String BEARER_TOKEN = "fabdor-dPluQTwdJJ4tamtnP0i7J34UqphHuJTdUugKt2YMJgQe
 #define RELAY_PIN 13 // Pino para o relé (controle da porta)
 
 MFRC522 rfid(SS_PIN, RST_PIN);
-WiFiUDP Udp;
+EthernetUDP Udp;
 unsigned int localUdpPort = 8888; // Porta para receber comandos via UDP
 bool cadastroAtivo = false;       // Indica se está no modo de cadastro
+
+void sendHttpPost(String json, String url)
+{
+    EthernetClient client;
+    if (client.connect("192.168.1.10", 19003))
+    {
+        Serial.println("Conexão bem-sucedida ao servidor.");
+
+        // Enviar requisição HTTP POST
+        client.println("POST /api" + url + " HTTP/1.1");
+        client.println("Host: 192.168.1.10");
+        client.println("Content-Type: application/json");
+        client.println("Authorization: Bearer " + BEARER_TOKEN);
+        client.print("Content-Length: ");
+        client.println(json.length());
+        client.println(); // Linha em branco que finaliza os cabeçalhos
+        client.println(json);
+
+        // Ler a resposta do servidor
+        String response = "";
+        while (client.available())
+        {
+            char c = client.read();
+            response += c; // Adiciona o caractere lido à resposta
+        }
+        Serial.println(client.status());
+        Serial.println("Resposta do servidor:");
+        Serial.println(response); // Imprime a resposta no Serial Monitor
+    }
+    else
+    {
+        Serial.println("Conexão com o servidor falhou.");
+    }
+   // client.stop();
+}
 
 void logEvent(String type, String message)
 {
     String logTime = String(millis() / 1000);
     Serial.println("[" + logTime + "s] " + message);
-    HTTPClient http;
     String json = "{\"type\": \"" + type + "\", \"message\": \"" + message + "\"}";
-    http.begin(ApiUrl + "/logs");
-    http.addHeader("Content-Type", "application/json");
-    int httpCode = http.POST(json);
-    http.end();
+    sendHttpPost(json, "/logs");
 }
 
 void imAlive()
 {
     HTTPClient http;
-    String json = "{\"ip\": \"" + WiFi.localIP().toString() + "\"}";
-    http.begin(ApiUrl + "/health/ip");
-    http.addHeader("Content-Type", "application/json");
-    int httpCode = http.POST(json);
-    logEvent("INFO", "[HTTP] POST... code: " + String(httpCode));
-    http.end();
+    String json = "{\"ip\": \"" + Ethernet.localIP().toString() + "\"}";
+    sendHttpPost(json, "/health/ip");
+    logEvent("INFO", "[HTTP] POST... imAlive: ");
 }
 
 void unlock_door()
@@ -57,12 +85,9 @@ void unlock_door()
 
 bool auth_rfid(String rfidCode)
 {
-    HTTPClient http;
-    http.begin(ApiUrl + "/tags/door");
-    http.addHeader("Content-Type", "application/json");
-    http.addHeader("Authorization", "Bearer " + BEARER_TOKEN);
+
     String json = "{\"rfid\": \"" + rfidCode + "\"}";
-    int httpCode = http.POST(json);
+    httpCode = sendHttpPost(json, "/tags/door");
 
     if (httpCode == HTTP_CODE_OK)
     {

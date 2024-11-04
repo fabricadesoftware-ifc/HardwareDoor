@@ -18,14 +18,39 @@ void sendHttpPost(String json)
   EthernetClient client;
   if (client.connect("192.168.1.10", 19003))
   {
+    Serial.println("Conexão bem-sucedida ao servidor.");
+
+    // Enviar requisição HTTP POST
     client.println("POST /api/health/ip HTTP/1.1");
     client.println("Host: 192.168.1.10");
     client.println("Content-Type: application/json");
     client.print("Content-Length: ");
     client.println(json.length());
-    client.println();
+    client.println(); // Linha em branco que finaliza os cabeçalhos
     client.println(json);
-    client.stop();
+
+    // Ler a resposta do servidor
+    String response = client.readString();
+
+    Serial.println("Resposta do servidor:");
+    Serial.println(response); // Imprime a resposta no Serial Monitor
+
+    // Extrair status code
+    int firstSpaceIndex = response.indexOf('H');                       // Encontrar o primeiro espaço
+    int secondSpaceIndex = response.indexOf('\n'); // Encontrar o segundo espaço
+
+    if (firstSpaceIndex != -1 && secondSpaceIndex != -1)
+    {
+      // Extrai o status code
+      String statusCodeString = response.substring(firstSpaceIndex, secondSpaceIndex);
+      int httpCodee = statusCodeString.toInt(); // Converte para inteiro
+      Serial.print("Status Code: ");
+      Serial.println(httpCodee); // Imprime o status code
+    }
+    else
+    {
+      Serial.println("Status code não encontrado.");
+    }
   }
   else
   {
@@ -95,7 +120,7 @@ void loop()
         test = !test;
 
         // Enviar solicitação HTTP
-        String json = "{\"ip\": \"" + WiFi.localIP().toString() + "\"}"; // Use o IP correto aqui
+        String json = "{\"ip\": \"" + Ethernet.localIP().toString() + "\"}"; // Use o IP correto aqui
         sendHttpPost(json);
 
         // Envia uma resposta de volta ao cliente
