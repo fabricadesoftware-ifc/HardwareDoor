@@ -18,6 +18,7 @@ const String BEARER_TOKEN = "fabdor-dPluQTwdJJ4tamtnP0i7J34UqphHuJTdUugKt2YMJgQe
 #define SS_PIN 21    // Pino SS para o leitor RFID
 #define RST_PIN 22   // Pino RST para o leitor RFID
 #define RELAY_PIN 13 // Pino para o relé (controle da porta)
+#define BUZZER_PIN 12 // Pino para o buzzer
 
 MFRC522 rfid(SS_PIN, RST_PIN);
 WebServer server(19003);
@@ -43,7 +44,6 @@ void imAlive()
   http.begin(ApiUrl + "/health/ip");
   http.addHeader("Content-Type", "application/json");
   int httpCode = http.POST(json);
-  logEvent("INFO", "[HTTP] POST... code: " + String(httpCode));
   http.end();
 }
 
@@ -82,8 +82,8 @@ bool auth_rfid(String rfidCode)
 // Função para cadastrar um novo RFID
 void cadastrar_rfid(String rfidCode)
 {
-  logEvent("INFO", "Cadastrando RFID: " + rfidCode);
   HTTPClient http;
+  logEvent("INFO", "Cadastrando RFID: " + rfidCode);
   http.begin(ApiUrl + "/tags/" + rfidCode); // Define o endpoint da API
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Authorization", "Bearer " + BEARER_TOKEN);
@@ -142,8 +142,11 @@ void verificarCartaoRFID()
 {
   if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial())
   {
-    logEvent("INFO", "Cartão detectado.");
+    digitalWrite(BUZZER_PIN, HIGH);
+    delay(50);
+    digitalWrite(BUZZER_PIN, LOW);
     processarCartao();
+    logEvent("INFO", "Cartão detectado.");
     rfid.PICC_HaltA(); // Finaliza a leitura do cartão
   }
 }
@@ -179,6 +182,7 @@ void setup()
   Serial.begin(9600);
   pinMode(LED_BUILTIN, OUTPUT);
   pinMode(RELAY_PIN, OUTPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
   digitalWrite(LED_BUILTIN, LOW);
 
   WiFi.mode(WIFI_STA);
