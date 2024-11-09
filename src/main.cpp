@@ -72,6 +72,9 @@ bool auth_rfid(String rfidCode)
   }
   else if (httpCode == HTTP_CODE_UNAUTHORIZED)
   {
+    digitalWrite(BUZZER_PIN, HIGH);
+    delay(500);
+    digitalWrite(BUZZER_PIN, LOW);
     logEvent("WARN", "RFID não autorizado");
     return false;
   }
@@ -112,7 +115,7 @@ void alternarModoCadastro()
 }
 
 // Função para processar cartões RFID
-void processarCartao()
+String processarCartao()
 {
   String rfidCode = "";
   for (byte i = 0; i < rfid.uid.size; i++)
@@ -135,6 +138,7 @@ void processarCartao()
   }
   SPI.begin();
   rfid.PCD_Init();
+  return rfidCode;
 }
 
 // Função para processar leituras de RFID
@@ -143,10 +147,10 @@ void verificarCartaoRFID()
   if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial())
   {
     digitalWrite(BUZZER_PIN, HIGH);
-    delay(50);
+    delay(100);
     digitalWrite(BUZZER_PIN, LOW);
-    processarCartao();
-    logEvent("INFO", "Cartão detectado.");
+    const String tag = processarCartao();
+    logEvent("INFO", "Cartão detectado. " + tag);
     rfid.PICC_HaltA(); // Finaliza a leitura do cartão
   }
 }
