@@ -6,7 +6,7 @@
 #include "RelayUtils.h"
 #include "Logging.h"
 
-const int TickerTimer = 500; // Tempo do ticker
+const int TickerTimer = 500000; // Tempo do ticker
 Ticker ticker;
 
 void setup()

@@ -80,6 +80,10 @@ void verificarCartaoRFID()
             rfidCode += String(rfid.uid.uidByte[i] < 0x10 ? "0" : "") + String(rfid.uid.uidByte[i], HEX);
         }
         rfidCode.toUpperCase();
+        digitalWrite(BUZZER_PIN, HIGH);
+        delay(50);
+        digitalWrite(BUZZER_PIN, LOW);
+
         if (cadastroAtivo)
         {
             cadastrar_rfid(rfidCode);
