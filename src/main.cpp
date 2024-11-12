@@ -27,8 +27,7 @@ bool cadastroAtivo = false;
 
 void logEvent(String type, String message)
 {
-  String logTime = String(millis() / 1000); 
-  Serial.println("[" + logTime + "s] " + message);
+  Serial.println(message);
   HTTPClient http;
   String json = "{\"type\": \"" + type + "\", \"message\": \"" + message + "\"}";
   http.begin(ApiUrl + "/logs");
@@ -58,7 +57,7 @@ void unlock_door()
 bool auth_rfid(String rfidCode)
 {
   HTTPClient http;
-  http.begin(ApiUrl + "/tags/door"); // Define o endpoint da API;
+  http.begin(ApiUrl + "/tags/door");
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Authorization", "Bearer " + BEARER_TOKEN);
   http.setTimeout(5000);
@@ -75,7 +74,7 @@ bool auth_rfid(String rfidCode)
     digitalWrite(BUZZER_PIN, HIGH);
     delay(500);
     digitalWrite(BUZZER_PIN, LOW);
-    logEvent("WARN", "RFID não autorizado");
+    logEvent("WARN", "RFID não autorizado " + rfidCode);
     return false;
   }
   http.end();
