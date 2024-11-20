@@ -186,6 +186,12 @@ void verificarCartaoRFID()
     digitalWrite(BUZZER_PIN, LOW);
     const String tag = processarCartao();
     logEvent("INFO", "Cartão detectado: " + tag);
+    HTTPClient http;
+    String json = "{\"rfid\": \"" + tag + "\"}";
+    http.begin(ApiUrl + "/tags/door");
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("Authorization", "Bearer " + BEARER_TOKEN);
+    int httpCode = http.POST(json);
     rfid.PICC_HaltA();
   }
 }
