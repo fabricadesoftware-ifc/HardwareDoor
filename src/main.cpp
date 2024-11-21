@@ -133,6 +133,7 @@ void cadastrar_rfid(String rfidCode)
   if (httpCode == HTTP_CODE_CREATED)
   {
     logEvent("SUCCESS", "RFID cadastrado com sucesso");
+    atualizarCache();
   }
   else if (httpCode == HTTP_CODE_CONFLICT)
   {
