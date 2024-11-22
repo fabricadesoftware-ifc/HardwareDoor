@@ -39,6 +39,7 @@ void logEvent(String type, String message)
   String json = "{\"type\": \"" + type + "\", \"message\": \"" + message + "\"}";
   http.begin(ApiUrl + "/logs");
   http.addHeader("Content-Type", "application/json");
+  http.addHeader("Authorization", "Bearer " + BEARER_TOKEN);
   http.POST(json);
   http.end();
 }
