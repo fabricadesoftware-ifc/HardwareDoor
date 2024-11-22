@@ -257,6 +257,14 @@ void setup()
   ticker.attach(TickerTimer2, atualizarCache);
 
   iniciarServidor();
+
+  digitalWrite(BUZZER_PIN, HIGH);
+  delay(200);
+  digitalWrite(BUZZER_PIN, LOW);
+  delay(300);
+  digitalWrite(BUZZER_PIN, HIGH);
+  delay(200);
+  digitalWrite(BUZZER_PIN, LOW);
 }
 
 void loop()
