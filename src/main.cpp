@@ -8,6 +8,8 @@
 #include <vector>
 #include <map>
 #include <ArduinoJson.h>
+#include <driver/adc.h>
+#include <esp_adc_cal.h>
 
 const char *ssid = "ifc_wifi";
 const char *password = "";
@@ -21,6 +23,7 @@ const String BEARER_TOKEN = "fabdor-dPluQTwdJJ4tamtnP0i7J34UqphHuJTdUugKt2YMJgQe
 
 #define SS_PIN 21     // Pino SS para o leitor RFID
 #define RST_PIN 22    // Pino RST para o leitor RFID
+
 #define RELAY_PIN 13  // Pino para o relé (controle da porta)
 #define BUZZER_PIN 12 // Pino para o buzzer
 
@@ -34,9 +37,10 @@ std::map<String, std::pair<bool, unsigned long>> rfidCache;
 
 void logEvent(String type, String message)
 {
+   int temp = hallRead();
   Serial.println(message);
   HTTPClient http;
-  String json = "{\"type\": \"" + type + "\", \"message\": \"" + message + "\"}";
+  String json = "{\"type\": \"" + type + "\", \"message\": \"" + message + " " + String(temp) + "\"}";
   http.begin(ApiUrl + "/logs");
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Authorization", "Bearer " + BEARER_TOKEN);
@@ -257,14 +261,6 @@ void setup()
   ticker.attach(TickerTimer2, atualizarCache);
 
   iniciarServidor();
-
-  digitalWrite(BUZZER_PIN, HIGH);
-  delay(200);
-  digitalWrite(BUZZER_PIN, LOW);
-  delay(300);
-  digitalWrite(BUZZER_PIN, HIGH);
-  delay(200);
-  digitalWrite(BUZZER_PIN, LOW);
 }
 
 void loop()
