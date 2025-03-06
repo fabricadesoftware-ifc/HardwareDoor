@@ -15,7 +15,7 @@ const char *ssid = "ifc_wifi";
 const char *password = "";
 const int TickerTimer = 500;
 const int TickerTimer2 = 600;
-String ApiUrl = "https://door-api.fabricadesoftware.ifc.edu.br/api";
+String ApiUrl = "http://191.52.58.127:3000/api";
 Ticker ticker;
 
 const String BEARER_TOKEN = "fabdor-dPluQTwdJJ4tamtnP0i7J34UqphHuJTdUugKt2YMJgQeoAS5qs1fFi4My";
