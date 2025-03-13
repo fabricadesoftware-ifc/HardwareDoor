@@ -16,9 +16,12 @@ const char *password = "";
 const int TickerTimer = 500;
 const int TickerTimer2 = 600;
 String ApiUrl = "http://191.52.58.127:3000/api";
-Ticker ticker;
+Ticker tickerImAlive;
+Ticker tickerAtualizarCache; 
 
-const String BEARER_TOKEN = "fabdor-dPluQTwdJJ4tamtnP0i7J34UqphHuJTdUugKt2YMJgQeoAS5qs1fFi4My";
+#define BEARER_TOKEN_N BEARER_TOKEN_ENV // Correto! Sem `=`
+const String BEARER_TOKEN = String(BEARER_TOKEN_N); // Correto!
+
 #define LED_BUILTIN 2
 
 #define SS_PIN 21     // Pino SS para o leitor RFID
@@ -62,7 +65,7 @@ void atualizarCache()
 {
   HTTPClient http;
   http.begin(ApiUrl + "/tags/");
-  http.addHeader("Content-Type", "application/json");
+  // http.addHeader("Content-Type", "application/json"); (dando erro de "SyntaxError: Expected ',' or '}' after property value in JSON" na requisição)
   http.addHeader("Authorization", "Bearer " + BEARER_TOKEN);
   int httpCode = http.GET();
 
@@ -144,12 +147,19 @@ void cadastrar_rfid(String rfidCode)
     digitalWrite(BUZZER_PIN, HIGH);
     delay(50);
     digitalWrite(BUZZER_PIN, LOW);
-    atualizarCache();
     logEvent("SUCCESS", "RFID cadastrado com sucesso");
+    atualizarCache();
 
   }
   else if (httpCode == HTTP_CODE_CONFLICT)
   {
+    digitalWrite(BUZZER_PIN, HIGH);
+    delay(50);
+    digitalWrite(BUZZER_PIN, LOW);
+    delay(50);
+    digitalWrite(BUZZER_PIN, HIGH);
+    delay(500);
+    digitalWrite(BUZZER_PIN, LOW);
     logEvent("WARN", "RFID já cadastrado");
   }
   else
@@ -200,13 +210,13 @@ void verificarCartaoRFID()
     digitalWrite(BUZZER_PIN, LOW);
     const String tag = processarCartao();
     logEvent("INFO", "Cartão detectado: " + tag);
-    HTTPClient http;
-    String json = "{\"rfid\": \"" + tag + "\"}";
-    http.begin(ApiUrl + "/tags/door");
-    http.addHeader("Content-Type", "application/json");
-    http.addHeader("Authorization", "Bearer " + BEARER_TOKEN);
-    int httpCode = http.POST(json);
-    rfid.PICC_HaltA();
+    //HTTPClient http;
+    //String json = "{\"rfid\": \"" + tag + "\"}";
+    //http.begin(ApiUrl + "/tags/door");
+    //http.addHeader("Content-Type", "application/json");
+    //http.addHeader("Authorization", "Bearer " + BEARER_TOKEN);
+    //int httpCode = http.POST(json);
+    //rfid.PICC_HaltA();
   }
 }
 
@@ -226,6 +236,15 @@ void iniciarServidor()
     if (server.hasHeader("Authorization") && server.header("Authorization") == "Bearer " + BEARER_TOKEN) {
       unlock_door();
       server.send(200, "application/json", "{\"success\": true, \"message\": \"Porta aberta com sucesso\"}");
+    } else {
+      server.send(401, "application/json", "{\"success\": false, \"message\": \"Token Bearer inválido\"}");
+    } });
+
+  server.on("/cache", HTTP_GET, []()
+            {
+    if (server.hasHeader("Authorization") && server.header("Authorization") == "Bearer " + BEARER_TOKEN) {
+      server.send(200, "application/json", "{\"success\": true, \"message\": \" Cache atualizado com sucesso \"}");
+      atualizarCache(); //buildar e subir seu macaco
     } else {
       server.send(401, "application/json", "{\"success\": false, \"message\": \"Token Bearer inválido\"}");
     } });
@@ -257,8 +276,8 @@ void setup()
   // Atualiza o cache imediatamente
   atualizarCache();
 
-  ticker.attach(TickerTimer, imAlive);
-  ticker.attach(TickerTimer2, atualizarCache);
+  tickerImAlive.attach(TickerTimer, imAlive);
+  tickerAtualizarCache.attach(TickerTimer2, atualizarCache);
 
   iniciarServidor();
 }
