@@ -40,16 +40,24 @@ std::map<String, std::pair<bool, unsigned long>> rfidCache;
 
 void logEvent(String type, String message)
 {
-   int temp = hallRead();
+  int temp = hallRead();
   Serial.println(message);
+
+  DynamicJsonDocument doc(256);
+  doc["type"] = type;
+  doc["message"] = message + " " + String(temp);
+
+  String json;
+
+  serializeJson(doc, json);
+
   HTTPClient http;
-  String json = "{\"type\": \"" + type + "\", \"message\": \"" + message + " " + String(temp) + "\"}";
   http.begin(ApiUrl + "/logs");
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Authorization", "Bearer " + BEARER_TOKEN);
   http.POST(json);
   http.end();
-}
+} //subir. a função me questão houve modificações: erro de json no back
 
 void imAlive()
 {
