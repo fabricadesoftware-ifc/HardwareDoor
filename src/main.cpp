@@ -1,173 +1,297 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <MFRC522.h>
+#include <Ticker.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <WebServer.h>
+#include <vector>
+#include <map>
+#include <ArduinoJson.h>
+#include <driver/adc.h>
+#include <esp_adc_cal.h>
 
 const char *ssid = "ifc_wifi";
 const char *password = "";
+const int TickerTimer = 500;
+const int TickerTimer2 = 600;
+String ApiUrl = "http://191.52.58.127:3000/api";
+Ticker tickerImAlive;
+Ticker tickerAtualizarCache; 
 
-String ApiUrl = "http://191.52.59.34:8087";
+#define BEARER_TOKEN_N BEARER_TOKEN_ENV // Correto! Sem `=`
+const String BEARER_TOKEN = String(BEARER_TOKEN_N); // Correto!
 
-#define SS_PIN 21
-#define RST_PIN 22
-#define CARD_READ_DELAY 1000 // Tempo em milissegundos para esperar antes de ler outro cartão
-#define RELAY_PIN 13         // Relay at pin 13
-#define DEBOUNCE_DELAY 50    // Tempo em milissegundos para esperar antes de mudar o estado do relé novamente
+#define LED_BUILTIN 2
+
+#define SS_PIN 21     // Pino SS para o leitor RFID
+#define RST_PIN 22    // Pino RST para o leitor RFID
+
+#define RELAY_PIN 13  // Pino para o relé (controle da porta)
+#define BUZZER_PIN 12 // Pino para o buzzer
 
 MFRC522 rfid(SS_PIN, RST_PIN);
-unsigned long lastCardReadTime = 0;
-bool isRelayOn = false;
+WebServer server(19003);
 
-/* Função para verificar se a API está no ar */
-bool check_api()
+bool cadastroAtivo = false;
+
+// Cache de tags autorizadas
+std::map<String, std::pair<bool, unsigned long>> rfidCache;
+
+void logEvent(String type, String message)
+{
+  int temp = hallRead();
+  Serial.println(message);
+
+  DynamicJsonDocument doc(256);
+  doc["type"] = type;
+  doc["message"] = message + " " + String(temp);
+
+  String json;
+
+  serializeJson(doc, json);
+
+  HTTPClient http;
+  http.begin(ApiUrl + "/logs");
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("Authorization", "Bearer " + BEARER_TOKEN);
+  http.POST(json);
+  http.end();
+} //subir. a função me questão houve modificações: erro de json no back
+
+void imAlive()
 {
   HTTPClient http;
-  Serial.println("Verificando a API...");
-  http.begin(ApiUrl);
-  int httpCode = http.GET();
-
-  Serial.printf("[HTTP] GET... code: %d\n", httpCode);
-
-  if (httpCode > 0)
-  {
-    if (httpCode == HTTP_CODE_OK)
-    {
-      String payload = http.getString();
-      Serial.println("API está no ar. Resposta:");
-      Serial.println(payload);
-    }
-    else
-    {
-      Serial.println("API não está respondendo como esperado.");
-    }
-  }
-  else
-  {
-    Serial.printf("[HTTP] GET... falhou, erro: %s\n", http.errorToString(httpCode).c_str());
-    return false;
-  }
-
+  String json = "{\"ip\": \"" + WiFi.localIP().toString() + "\"}";
+  http.begin(ApiUrl + "/health/ip");
+  http.addHeader("Content-Type", "application/json");
+  http.POST(json);
   http.end();
-  return true;
 }
 
-bool auth_rfid(String rfid)
+void atualizarCache()
 {
   HTTPClient http;
-  Serial.println("Autenticando RFID...");
-  http.begin(ApiUrl + "/door/"); // Specify destination for HTTP request
-  http.addHeader("Content-Type", "application/json");
-  String json = "{\"rfid\": \"" + rfid + "\"}";
+  http.begin(ApiUrl + "/tags/");
+  // http.addHeader("Content-Type", "application/json"); (dando erro de "SyntaxError: Expected ',' or '}' after property value in JSON" na requisição)
+  http.addHeader("Authorization", "Bearer " + BEARER_TOKEN);
+  int httpCode = http.GET();
 
-  Serial.print("Enviando POST com payload: ");
-  Serial.println(json);
-
-  int httpCode = http.POST(json); // Send the request
-
-  Serial.printf("[HTTP] POST... code: %d\n", httpCode);
-
-  if (httpCode > 0)
+  if (httpCode == HTTP_CODE_OK)
   {
-    if (httpCode == HTTP_CODE_OK)
+    String payload = http.getString();
+    logEvent("INFO", "Resposta da API recebida: " + payload);
+
+    DynamicJsonDocument doc(4096);
+    DeserializationError error = deserializeJson(doc, payload);
+
+    if (error)
     {
-      String payload = http.getString();
-      Serial.println("Autenticação bem-sucedida. Resposta:");
-      Serial.println(payload);
-      return true;
+      logEvent("ERROR", "Erro ao analisar JSON: " + String(error.c_str()));
+      return;
     }
-    else if (httpCode == HTTP_CODE_UNAUTHORIZED)
+
+    JsonArray tags = doc["data"].as<JsonArray>();
+    rfidCache.clear(); // Limpa o cache antes de atualizar
+
+    for (JsonObject tag : tags)
     {
-      Serial.println("Cartão não autorizado");
-      return false;
+      String rfid = tag["rfid"].as<String>();
+      bool isValid = tag["valid"].as<bool>();
+
+      if (isValid)
+      {
+        rfidCache[rfid] = std::make_pair(true, millis());
+      }
     }
-    else
-    {
-      Serial.printf("Resposta inesperada. Código HTTP: %d\n", httpCode);
-    }
+
+    logEvent("INFO", "Cache atualizado com sucesso com " + String(rfidCache.size()) + " tags válidas.");
   }
   else
   {
-    Serial.printf("[HTTP] POST... falhou, erro: %s\n", http.errorToString(httpCode).c_str());
+    logEvent("ERROR", "Falha ao conectar com a API: " + http.errorToString(httpCode));
   }
 
   http.end();
-  return false;
 }
 
 void unlock_door()
 {
-  Serial.println("Desbloqueando porta...");
   digitalWrite(RELAY_PIN, HIGH);
-  Serial.println("ABRINDO");
-  delay(DEBOUNCE_DELAY);
-  Serial.println("FECHANDO");
+  delay(50);
   digitalWrite(RELAY_PIN, LOW);
-  Serial.println("Porta desbloqueada");
+}
+
+bool auth_rfid(String rfidCode)
+{
+  if (rfidCache.find(rfidCode) != rfidCache.end() && rfidCache[rfidCode].first)
+  {
+    return true; // Tag encontrada no cache e válida
+  }
+
+  // Caso contrário, a tag não é válida
+  digitalWrite(BUZZER_PIN, HIGH);
+  delay(500);
+  digitalWrite(BUZZER_PIN, LOW);
+  logEvent("WARN", "RFID não autorizado: " + rfidCode);
+  return false;
+}
+
+void cadastrar_rfid(String rfidCode)
+{
+  HTTPClient http;
+  logEvent("INFO", "Cadastrando RFID: " + rfidCode);
+  http.begin(ApiUrl + "/tags/" + rfidCode);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("Authorization", "Bearer " + BEARER_TOKEN);
+  int httpCode = http.POST("{}");
+
+  if (httpCode == HTTP_CODE_CREATED)
+  {
+    digitalWrite(BUZZER_PIN, HIGH);
+    delay(50);
+    digitalWrite(BUZZER_PIN, LOW);
+    delay(50);
+    digitalWrite(BUZZER_PIN, HIGH);
+    delay(50);
+    digitalWrite(BUZZER_PIN, LOW);
+    logEvent("SUCCESS", "RFID cadastrado com sucesso");
+    atualizarCache();
+
+  }
+  else if (httpCode == HTTP_CODE_CONFLICT)
+  {
+    digitalWrite(BUZZER_PIN, HIGH);
+    delay(50);
+    digitalWrite(BUZZER_PIN, LOW);
+    delay(50);
+    digitalWrite(BUZZER_PIN, HIGH);
+    delay(500);
+    digitalWrite(BUZZER_PIN, LOW);
+    logEvent("WARN", "RFID já cadastrado");
+  }
+  else
+  {
+    logEvent("ERROR", "Falha ao criar RFID: " + http.errorToString(httpCode));
+  }
+}
+
+void alternarModoCadastro()
+{
+  cadastroAtivo = !cadastroAtivo;
+  logEvent("INFO", cadastroAtivo ? "Modo de cadastro ativado" : "Modo de operação normal ativado");
+  digitalWrite(LED_BUILTIN, cadastroAtivo ? HIGH : LOW); // LED indica modo ativo
+}
+
+String processarCartao()
+{
+  String rfidCode = "";
+  for (byte i = 0; i < rfid.uid.size; i++)
+  {
+    rfidCode += String(rfid.uid.uidByte[i] < 0x10 ? "0" : "");
+    rfidCode += String(rfid.uid.uidByte[i], HEX);
+  }
+  rfidCode.toUpperCase();
+
+  if (cadastroAtivo)
+  {
+    cadastrar_rfid(rfidCode);
+  }
+  else
+  {
+    if (auth_rfid(rfidCode))
+    {
+      unlock_door();
+    }
+  }
+  SPI.begin();
+  rfid.PCD_Init();
+  return rfidCode;
+}
+
+void verificarCartaoRFID()
+{
+  if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial())
+  {
+    digitalWrite(BUZZER_PIN, HIGH);
+    delay(100);
+    digitalWrite(BUZZER_PIN, LOW);
+    const String tag = processarCartao();
+    logEvent("INFO", "Cartão detectado: " + tag);
+    //HTTPClient http;
+    //String json = "{\"rfid\": \"" + tag + "\"}";
+    //http.begin(ApiUrl + "/tags/door");
+    //http.addHeader("Content-Type", "application/json");
+    //http.addHeader("Authorization", "Bearer " + BEARER_TOKEN);
+    //int httpCode = http.POST(json);
+    //rfid.PICC_HaltA();
+  }
+}
+
+void iniciarServidor()
+{
+  server.on("/toggle-mode", HTTP_GET, []()
+            {
+    if (server.hasHeader("Authorization") && server.header("Authorization") == "Bearer " + BEARER_TOKEN) {
+      alternarModoCadastro();
+      server.send(200, "application/json", "{\"success\": true, \"mode\": \"" + String(cadastroAtivo ? "cadastro" : "operacao") + "\"}");
+    } else {
+      server.send(401, "application/json", "{\"success\": false, \"message\": \"Token Bearer inválido\"}");
+    } });
+
+  server.on("/open-door", HTTP_GET, []()
+            {
+    if (server.hasHeader("Authorization") && server.header("Authorization") == "Bearer " + BEARER_TOKEN) {
+      unlock_door();
+      server.send(200, "application/json", "{\"success\": true, \"message\": \"Porta aberta com sucesso\"}");
+    } else {
+      server.send(401, "application/json", "{\"success\": false, \"message\": \"Token Bearer inválido\"}");
+    } });
+
+  server.on("/cache", HTTP_GET, []()
+            {
+    if (server.hasHeader("Authorization") && server.header("Authorization") == "Bearer " + BEARER_TOKEN) {
+      server.send(200, "application/json", "{\"success\": true, \"message\": \" Cache atualizado com sucesso \"}");
+      atualizarCache(); //buildar e subir seu macaco
+    } else {
+      server.send(401, "application/json", "{\"success\": false, \"message\": \"Token Bearer inválido\"}");
+    } });
+
+  server.begin();
 }
 
 void setup()
 {
-  Serial.begin(115200);
-  Serial.println("Iniciando...");
-
+  Serial.begin(9600);
+  pinMode(LED_BUILTIN, OUTPUT);
   pinMode(RELAY_PIN, OUTPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, LOW);
 
-  WiFi.mode(WIFI_STA); // Optional
+  WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
-
-  Serial.println("\nConectando ao WiFi...");
-
+  logEvent("INFO", "Conectando ao WiFi...");
   while (WiFi.status() != WL_CONNECTED)
   {
     delay(500);
     Serial.print(".");
   }
-
-  Serial.println("\nConectado ao WiFi");
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
-  Serial.println(WiFi.subnetMask());
-  Serial.println(WiFi.gatewayIP());
-  Serial.println(WiFi.dnsIP());
+  logEvent("INFO", "Conectado ao WiFi. IP: " + WiFi.localIP().toString());
 
   SPI.begin();
   rfid.PCD_Init();
-  Serial.println("Leitor RFID inicializado, aguardando cartões...");
 
-  check_api();
+  // Atualiza o cache imediatamente
+  atualizarCache();
+
+  tickerImAlive.attach(TickerTimer, imAlive);
+  tickerAtualizarCache.attach(TickerTimer2, atualizarCache);
+
+  iniciarServidor();
 }
 
 void loop()
 {
-  if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial())
-  {
-    // Verifica se já passou tempo suficiente desde a última leitura
-    if (millis() - lastCardReadTime > CARD_READ_DELAY)
-    {
-      // Lê o conteúdo do cartão e o imprime no console
-      String conteudo = "";
-      for (byte i = 0; i < rfid.uid.size; i++)
-      {
-        conteudo.concat(String(rfid.uid.uidByte[i] < 0x10 ? "0" : ""));
-        conteudo.concat(String(rfid.uid.uidByte[i], HEX));
-      }
-      conteudo.toUpperCase();
-      Serial.println("Conteúdo do cartão: " + conteudo);
-
-      // Se o conteúdo não estiver vazio, envia para a API
-      if (conteudo != "")
-      {
-        if (auth_rfid(conteudo))
-        {
-          unlock_door();
-        }
-        else
-        {
-          Serial.println("Porta não desbloqueada");
-        }
-      }
-      lastCardReadTime = millis();
-    }
-  }
+  server.handleClient();
+  verificarCartaoRFID();
 }

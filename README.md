@@ -87,7 +87,7 @@ O sistema mantém um registro de eventos que são enviados para o servidor, incl
 - Cadastro de novas tags
 - Mudanças de estado do sistema
 
-## Execução e Inicialização
+## Execução e Inicialização'
 Na inicialização o sistema:
 1. Configura os pinos GPIO
 2. Conecta-se à rede WiFi
