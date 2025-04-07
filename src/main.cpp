@@ -1,6 +1,4 @@
 #include <Arduino.h>
-#include <SPI.h>
-#include <MFRC522.h>
 #include <Ticker.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
@@ -10,12 +8,13 @@
 #include <ArduinoJson.h>
 #include <driver/adc.h>
 #include <esp_adc_cal.h>
+#include <HardwareSerial.h>
 
 const char *ssid = "ifc_wifi";
 const char *password = "";
 const int TickerTimer = 500;
 const int TickerTimer2 = 600;
-String ApiUrl = "http://191.52.58.127:3000/api";
+String ApiUrl = "http://191.52.56.190:3000/api";
 Ticker tickerImAlive;
 Ticker tickerAtualizarCache; 
 
@@ -30,7 +29,10 @@ const String BEARER_TOKEN = String(BEARER_TOKEN_N); // Correto!
 #define RELAY_PIN 13  // Pino para o relé (controle da porta)
 #define BUZZER_PIN 12 // Pino para o buzzer
 
-MFRC522 rfid(SS_PIN, RST_PIN);
+#define RFID_RX 16 // Pino RX do RDM6300
+#define RFID_TX 18 // Pino TX do RDM6300
+
+HardwareSerial rfidSerial(1);
 WebServer server(19003);
 
 bool cadastroAtivo = false;
@@ -186,38 +188,44 @@ void alternarModoCadastro()
 String processarCartao()
 {
   String rfidCode = "";
-  for (byte i = 0; i < rfid.uid.size; i++)
+  while (rfidSerial.available())
   {
-    rfidCode += String(rfid.uid.uidByte[i] < 0x10 ? "0" : "");
-    rfidCode += String(rfid.uid.uidByte[i], HEX);
+    char c = rfidSerial.read();
+    if (c == 0x02) // Início do frame
+      rfidCode = "";
+    else if (c == 0x03) // Fim do frame
+      break;
+    else
+      rfidCode += c;
   }
-  rfidCode.toUpperCase();
-
-  if (cadastroAtivo)
+  if (!rfidCode.isEmpty() && rfidCode.length() >= 10)
   {
-    cadastrar_rfid(rfidCode);
-  }
-  else
-  {
-    if (auth_rfid(rfidCode))
-    {
+    rfidCode = rfidCode.substring(0, 10); // Limita o tamanho do código RFID
+    if (cadastroAtivo)
+      cadastrar_rfid(rfidCode);
+    else if (auth_rfid(rfidCode))
       unlock_door();
-    }
   }
-  SPI.begin();
-  rfid.PCD_Init();
   return rfidCode;
 }
 
 void verificarCartaoRFID()
 {
-  if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial())
+
+  if (rfidSerial.available())
   {
     digitalWrite(BUZZER_PIN, HIGH);
     delay(100);
     digitalWrite(BUZZER_PIN, LOW);
     const String tag = processarCartao();
     logEvent("INFO", "Cartão detectado: " + tag);
+    delay(800);
+    while (rfidSerial.available() > 0)
+    {
+      rfidSerial.read();
+    }
+    //limpar cache do rfid
+
     //HTTPClient http;
     //String json = "{\"rfid\": \"" + tag + "\"}";
     //http.begin(ApiUrl + "/tags/door");
@@ -278,8 +286,7 @@ void setup()
   }
   logEvent("INFO", "Conectado ao WiFi. IP: " + WiFi.localIP().toString());
 
-  SPI.begin();
-  rfid.PCD_Init();
+  rfidSerial.begin(9700, SERIAL_8N1, RFID_RX, RFID_TX);
 
   // Atualiza o cache imediatamente
   atualizarCache();
