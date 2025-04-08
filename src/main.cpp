@@ -47,7 +47,7 @@ void logEvent(String type, String message)
 
   DynamicJsonDocument doc(256);
   doc["type"] = type;
-  doc["message"] = message + " " + String(temp);
+  doc["message"] = message + " Temp: C°" + String(temp);
 
   String json;
 
@@ -237,6 +237,14 @@ void verificarCartaoRFID()
 
 void iniciarServidor()
 {
+  server.on("/mode", HTTP_GET, []()
+            {
+    if (server.hasHeader("Authorization") && server.header("Authorization") == "Bearer " + BEARER_TOKEN) {
+      server.send(200, "application/json", "{\"success\": true, \"mode\": \"" + String(cadastroAtivo ? "cadastro" : "operacao") + "\"}");
+    } else {
+      server.send(401, "application/json", "{\"success\": false, \"message\": \"Token Bearer inválido\"}");
+    } });
+
   server.on("/toggle-mode", HTTP_GET, []()
             {
     if (server.hasHeader("Authorization") && server.header("Authorization") == "Bearer " + BEARER_TOKEN) {
