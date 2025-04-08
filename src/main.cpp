@@ -14,7 +14,7 @@ const char *ssid = "ifc_wifi";
 const char *password = "";
 const int TickerTimer = 500;
 const int TickerTimer2 = 600;
-String ApiUrl = "http://191.52.56.190:3000/api";
+String ApiUrl = "http://191.52.59.130:3000/api";
 Ticker tickerImAlive;
 Ticker tickerAtualizarCache; 
 
@@ -82,7 +82,6 @@ void atualizarCache()
   if (httpCode == HTTP_CODE_OK)
   {
     String payload = http.getString();
-    logEvent("INFO", "Resposta da API recebida: " + payload);
 
     DynamicJsonDocument doc(4096);
     DeserializationError error = deserializeJson(doc, payload);
