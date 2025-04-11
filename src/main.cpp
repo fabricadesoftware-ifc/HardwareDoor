@@ -14,7 +14,7 @@ const char *ssid = "ifc_wifi";
 const char *password = "";
 const int TickerTimer = 500;
 const int TickerTimer2 = 600;
-String ApiUrl = "http://191.52.59.130:3000/api";
+String ApiUrl = "https://door-api.fabricadesoftware.ifc.edu.br/api";
 Ticker tickerImAlive;
 Ticker tickerAtualizarCache; 
 
@@ -77,9 +77,40 @@ void atualizarCache()
   http.begin(ApiUrl + "/tags/");
   // http.addHeader("Content-Type", "application/json"); (dando erro de "SyntaxError: Expected ',' or '}' after property value in JSON" na requisição)
   http.addHeader("Authorization", "Bearer " + BEARER_TOKEN);
+  logEvent("INFO", "Bearer token: " + BEARER_TOKEN);
   int httpCode = http.GET();
 
   if (httpCode == HTTP_CODE_OK)
+  logEvent("INFO", "Cache atualizado com sucesso");
+  else if (httpCode == HTTP_CODE_UNAUTHORIZED)
+  {
+    logEvent("ERROR", "Token Bearer inválido");
+    return;
+  }
+  else if (httpCode == HTTP_CODE_FORBIDDEN)
+  {
+    logEvent("ERROR", "Acesso negado ao recurso solicitado");
+    return;
+  }
+  else if (httpCode == HTTP_CODE_NOT_FOUND)
+  {
+    logEvent("ERROR", "Recurso não encontrado na API");
+    return;
+  }
+  else if (httpCode == HTTP_CODE_INTERNAL_SERVER_ERROR)
+  {
+    logEvent("ERROR", "Erro interno do servidor da API");
+    return;
+  }
+  else if (httpCode == HTTP_CODE_OK)
+  {
+    logEvent("INFO", "Cache atualizado com sucesso");
+  }
+  else
+  {
+    logEvent("ERROR", "Erro ao conectar com a API: " + http.getString());
+    return;
+  }
   {
     String payload = http.getString();
 
@@ -108,10 +139,10 @@ void atualizarCache()
 
     logEvent("INFO", "Cache atualizado com sucesso com " + String(rfidCache.size()) + " tags válidas.");
   }
-  else
-  {
-    logEvent("ERROR", "Falha ao conectar com a API: " + http.errorToString(httpCode));
-  }
+  // else
+  // {
+  //   logEvent("ERROR", "Falha ao conectar com a API: " + http.errorToString(httpCode));
+  // }
 
   http.end();
 }
@@ -285,7 +316,7 @@ void setup()
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
-  logEvent("INFO", "Conectando ao WiFi...");
+  // logEvent("INFO", "Conectando ao WiFi...");
   while (WiFi.status() != WL_CONNECTED)
   {
     delay(500);
@@ -296,12 +327,12 @@ void setup()
   rfidSerial.begin(9700, SERIAL_8N1, RFID_RX, RFID_TX);
 
   // Atualiza o cache imediatamente
-  atualizarCache();
-
+  
   tickerImAlive.attach(TickerTimer, imAlive);
   tickerAtualizarCache.attach(TickerTimer2, atualizarCache);
-
+  
   iniciarServidor();
+  atualizarCache();
 }
 
 void loop()
