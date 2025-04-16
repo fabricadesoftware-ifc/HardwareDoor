@@ -1,107 +1,184 @@
-# Sistema de Controle de Acesso RFID
+# Documentação do Sistema Fábrica Door
 
 ## Visão Geral
-Este projeto implementa um sistema de controle de acesso baseado em RFID utilizando um ESP32, leitor RFID MFRC522 e componentes adicionais como relé e buzzer. O sistema permite autenticar tags RFID para controlar o acesso a portas ou áreas restritas, além de oferecer funcionalidades de cadastro de novas tags.
 
-## Funcionalidades
-- **Autenticação de Tags RFID**: Verifica se uma tag apresentada possui acesso autorizado
-- **Cadastro de Tags**: Modo especial para cadastro de novas tags RFID no sistema
-- **Cache Local**: Armazena tags autorizadas localmente para operação offline
-- **API REST**: Sincroniza com um servidor backend para gerenciamento de tags
-- **Servidor Web Embarcado**: Permite controle remoto do dispositivo
-- **Monitoramento de Status**: Envia heartbeats periódicos para o servidor
+O **Fábrica Door** é um sistema de controle de acesso baseado em tecnologia RFID desenvolvido pela Fábrica de Software do IFC. O sistema permite controlar o acesso a ambientes por meio de cartões RFID, oferecendo funcionalidades de autenticação, registro de novos cartões e controle remoto da porta via API.
 
-## Componentes de Hardware
-- ESP32 (Microcontrolador)
-- Módulo RFID MFRC522
-- Módulo Relé (para controle da fechadura)
-- Buzzer (para feedback sonoro)
-- LED interno (para indicação de status)
+## Arquitetura do Sistema
 
-## Conexões
-- **RFID MFRC522**:
-  - SS_PIN: 21
-  - RST_PIN: 22
-- **Relé**: Pino 13
-- **Buzzer**: Pino 12
-- **LED Integrado**: Pino 2 (LED_BUILTIN)
+O sistema é composto por:
 
-## Configuração de Rede
-O dispositivo se conecta a uma rede WiFi específica:
-- SSID: "ifc_wifi" 
-- Senha: (sem senha)
+1. **Hardware**:
+   - ESP32 (Microcontrolador)
+   - Leitor RFID RDM6300
+   - Relé para controle da porta
+   - Buzzer para feedback sonoro
+   - LED para indicação visual do modo de operação
 
-## Comunicação com API
-O sistema se comunica com um servidor backend através de endpoints REST:
-- URL base: http://191.52.58.127:3000/api
-- Autenticação: Bearer Token
+2. **Software**:
+   - Firmware em C++ para ESP32
+   - Servidor web embutido para controle remoto
+   - Integração com API externa para autenticação e gerenciamento de tags RFID
+   - PlataformIO como ambiente de desenvolvimento
 
-## Endpoints do Servidor Web Embarcado
-O dispositivo executa um servidor web interno na porta 19003 com os seguintes endpoints:
+3. **Comunicação**:
+   - Wi-Fi para conexão com a rede
+   - API REST para integração com o sistema de gerenciamento
 
-- **/toggle-mode**: Alterna entre modo de operação normal e modo de cadastro
-- **/open-door**: Aciona o relé para abrir a porta
-- **/cache**: Força uma atualização do cache de tags RFID
+## Estrutura do Código
 
-Todos os endpoints requerem autenticação via Bearer Token.
+O código foi organizado utilizando o paradigma de Programação Orientada a Objetos (POO), com as seguintes classes principais:
 
-## Modos de Operação
+### Classes Principais
 
-### Modo Normal
-- Ao aproximar uma tag RFID, o sistema verifica se ela está autorizada
-- Se autorizada, aciona o relé para abrir a porta
-- Sinais sonoros indicam sucesso ou falha na autenticação
+1. **RFIDReader**
+   - Responsável pela leitura e interpretação dos dados do leitor RFID.
 
-### Modo de Cadastro
-- Indicado pelo LED interno aceso
-- Ao aproximar uma tag, ela é enviada para o servidor para cadastro
-- Diferentes padrões sonoros indicam sucesso ou falha no cadastro
+2. **HardwareController**
+   - Gerencia os componentes físicos (relé, buzzer e LED).
 
-## Funções Principais
+3. **APIClient**
+   - Implementa as chamadas à API externa, incluindo logs, verificação de saúde e autenticação.
 
-### `auth_rfid(String rfidCode)`
-Verifica se uma tag RFID está autorizada, consultando o cache local.
+4. **DoorControlSystem**
+   - Classe principal que integra todos os componentes e gerencia o fluxo de operação.
 
-### `cadastrar_rfid(String rfidCode)`
-Envia uma tag RFID para o servidor para cadastro.
+## Detalhamento das Classes
 
-### `unlook_door()`
-Aciona o relé para abrir a porta (pulso curto).
+### RFIDReader
 
-### `atualizarCache()`
-Sincroniza o cache local com o servidor, obtendo a lista atualizada de tags autorizadas.
+Esta classe gerencia a comunicação com o leitor RFID via UART.
 
-### `imAlive()`
-Envia um sinal de "heartbeat" para o servidor informando o status do dispositivo.
+**Métodos principais:**
+- `readCard()`: Lê e decodifica o cartão RFID presente no leitor.
+- `isCardPresent()`: Verifica se existe um cartão no campo de leitura.
+- `clearBuffer()`: Limpa o buffer de dados do serial RFID.
 
-### `verificarCartaoRFID()`
-Monitora a presença de novos cartões RFID e processa quando detectados.
+### HardwareController
 
-### `alternarModoCadastro()`
-Alterna entre o modo de operação normal e o modo de cadastro de tags.
+Responsável pelo controle dos componentes eletrônicos do sistema.
 
-## Registro de Eventos
-O sistema mantém um registro de eventos que são enviados para o servidor, incluindo:
-- Detecção de cartões
-- Tentativas de acesso (bem-sucedidas ou não)
-- Cadastro de novas tags
-- Mudanças de estado do sistema
+**Métodos principais:**
+- `unlockDoor()`: Aciona o relé para destravar a porta.
+- `setLED()`: Controla o LED de status (indica modo de cadastro ou operação normal).
+- `beepShort()`, `beepError()`, `beepSuccess()`, `beepWarning()`: Diferentes padrões sonoros para feedback ao usuário.
 
-## Execução e Inicialização'
-Na inicialização o sistema:
-1. Configura os pinos GPIO
-2. Conecta-se à rede WiFi
-3. Inicializa o leitor RFID
-4. Atualiza o cache de tags autorizadas
-5. Configura timers para atualização periódica e heartbeat
-6. Inicia o servidor web interno
+### APIClient
+
+Implementa a comunicação com a API externa do sistema de gerenciamento.
+
+**Métodos principais:**
+- `logEvent()`: Registra eventos no sistema de log.
+- `reportHealth()`: Envia status de saúde do dispositivo para a API.
+- `registerRFID()`: Cadastra um novo cartão RFID na API.
+- `updateCache()`: Atualiza o cache local de cartões autorizados.
+
+### DoorControlSystem
+
+Classe principal que integra todos os componentes e implementa a lógica de negócio.
+
+**Métodos principais:**
+- `setup()`: Configura o sistema (Wi-Fi, servidor web, timers).
+- `loop()`: Loop principal de execução.
+- `toggleRegistrationMode()`: Alterna entre modo de operação normal e modo de cadastro.
+- `authenticateRFID()`: Verifica se um cartão RFID está autorizado.
+- `checkRFIDCard()`: Processa a leitura de cartões.
+- `setupServer()`: Configura as rotas do servidor web embutido.
+
+## Fluxos de Operação
+
+### Fluxo de Autenticação RFID
+
+1. Sistema detecta a presença de um cartão RFID
+2. Emite um beep curto para indicar leitura
+3. Lê o código do cartão
+4. Verifica se o código está presente no cache local de cartões autorizados
+5. Se autorizado, aciona o relé para abrir a porta
+6. Se não autorizado, emite um beep de erro e registra o evento no log
+
+### Fluxo de Cadastro de Cartão
+
+1. Sistema deve estar em modo de cadastro (LED aceso)
+2. Administrador aproxima um novo cartão do leitor
+3. Sistema lê o código e envia para a API de cadastro
+4. Se o cadastro for bem-sucedido, emite um beep duplo curto e atualiza o cache
+5. Se o cartão já estiver cadastrado, emite um beep de aviso
+
+## Interface Web
+
+O sistema disponibiliza um servidor web na porta 19003 com as seguintes rotas:
+
+- **GET /mode**: Retorna o modo atual de operação (cadastro ou operação normal)
+- **GET /toggle-mode**: Alterna entre modo de cadastro e operação normal
+- **GET /open-door**: Abre a porta remotamente
+- **GET /cache**: Força a atualização do cache de cartões autorizados
+
+Todas as rotas requerem autenticação via token Bearer.
+
+## Configuração do Sistema
+
+### Definições Principais
+
+```cpp
+const char *ssid = "ifc_wifi";          // Nome da rede Wi-Fi
+const char *password = "";              // Senha da rede Wi-Fi
+const int TickerTimer = 500;            // Timer para heartbeat (ms)
+const int TickerTimer2 = 600;           // Timer para atualização de cache (ms)
+String ApiUrl = "https://door-api.fabricadesoftware.ifc.edu.br/api";  // URL da API
+```
+
+### Pinos Utilizados
+
+- **LED_BUILTIN (2)**: LED de status
+- **RELAY_PIN (13)**: Relé para controle da porta
+- **BUZZER_PIN (12)**: Buzzer para feedbacks sonoros
+- **RFID_RX (16)**: Pino RX para o leitor RFID
+- **RFID_TX (18)**: Pino TX para o leitor RFID
 
 ## Segurança
-- Todas as operações via API e servidor web são protegidas por Bearer Token
-- O cache local armazena apenas tags autorizadas
-- Logs de eventos são enviados para auditoria
 
-## Manutenção
-- O cache é atualizado periodicamente (a cada 600ms)
-- Sinais de heartbeat são enviados regularmente (a cada 500ms)
-- O servidor web permite gerenciamento remoto
+- O sistema utiliza autenticação via token Bearer para todas as chamadas à API.
+- As credenciais de acesso à API são definidas através de variáveis de ambiente.
+- O cache local de cartões autorizados evita sobrecarga na API e permite funcionamento offline.
+
+## Manutenção e Troubleshooting
+
+### Logs do Sistema
+
+O sistema envia logs para a API externa com os seguintes tipos:
+- **INFO**: Informações gerais de operação
+- **WARN**: Avisos (ex: cartão não autorizado)
+- **ERROR**: Erros de operação
+- **SUCCESS**: Operações bem-sucedidas (ex: cadastro de cartão)
+
+### Indicações de LED Azul
+
+- **LED Apagado**: Modo de operação normal
+- **LED Aceso**: Modo de cadastro de cartões
+
+### Indicações Sonoras
+
+- **Beep Médio**: Leitura de cartão
+- **Beep Longo**: Cartão não autorizado
+- **Beep Médio + Duplo Curto**: Cartão cadastrado com sucesso
+- **Beep Médio + Longo**: Cartão já cadastrado
+
+## Ampliações Futuras
+
+1. **Integração com Câmera**: Para registro fotográfico de tentativas de acesso
+2. **Autenticação Biométrica**: Adicionar leitor de impressão digital
+3. **Interface de Usuário**: Adicionar display LCD para feedback visual
+4. **Suporte a Múltiplas Portas**: Expansão do sistema para controlar múltiplos pontos de acesso
+5. **Funcionalidade Offline Aprimorada**: Maior autonomia em caso de falha de conectividade
+
+## Limitações Conhecidas
+
+1. O sistema depende de conexão Wi-Fi para funcionalidades completas
+2. A autenticação é baseada apenas na leitura do cartão RFID (fator único)
+3. O relé é acionado por um pulso curto, adequado para fechaduras elétricas específicas
+
+## Referências
+
+- [Documentação do ESP32](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/)
+- [Biblioteca ArduinoJson](https://arduinojson.org/)
+- [Especificação do leitor RDM6300](https://www.itead.cc/wiki/RDM6300)
